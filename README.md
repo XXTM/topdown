@@ -1,6 +1,6 @@
-# A Top-down modulation with Fast Visual Pathway
+# A Top-down Modulation Framework for Accurate Object Detection
 
-TODO: This repository implements a top-down modulation framework for accurate object detection. 
+TODO: This repository implements a top-down modulation framework in view of human visual pathways. More details is to be implemented. 
 
 ## Installation of GluonCV
 
