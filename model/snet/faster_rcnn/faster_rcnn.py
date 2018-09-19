@@ -309,7 +309,7 @@ def get_faster_rcnn(name, dataset, pretrained=False, ctx=mx.cpu(),
     """
     net = FasterRCNN(**kwargs)
     if pretrained:
-        from ..model_store import get_model_file
+        from gluoncv.model_zoo.model_store import get_model_file
         full_name = '_'.join(('faster_rcnn', name, dataset))
         net.load_parameters(get_model_file(full_name, root=root), ctx=ctx)
     return net
@@ -336,8 +336,8 @@ def faster_rcnn_resnet50_v1b_voc(pretrained=False, pretrained_base=True, **kwarg
     >>> model = get_faster_rcnn_resnet50_v1b_voc(pretrained=True)
     >>> print(model)
     """
-    from ..resnetv1b import resnet50_v1b
-    from ...data import VOCDetection
+    from gluoncv.model_zoo.resnetv1b import resnet50_v1b
+    from gluoncv.data import VOCDetection
     classes = VOCDetection.CLASSES
     pretrained_base = False if pretrained else pretrained_base
     base_network = resnet50_v1b(pretrained=pretrained_base, dilated=False, use_global_stats=True)
@@ -383,8 +383,8 @@ def faster_rcnn_resnet50_v1b_coco(pretrained=False, pretrained_base=True, **kwar
     >>> model = get_faster_rcnn_resnet50_v1b_coco(pretrained=True)
     >>> print(model)
     """
-    from ..resnetv1b import resnet50_v1b
-    from ...data import COCODetection
+    from gluoncv.model_zoo.resnetv1b import resnet50_v1b
+    from gluoncv.data import COCODetection
     classes = COCODetection.CLASSES
     pretrained_base = False if pretrained else pretrained_base
     base_network = resnet50_v1b(pretrained=pretrained_base, dilated=False, use_global_stats=True)
@@ -432,7 +432,7 @@ def faster_rcnn_resnet50_v1b_custom(classes, transfer=None, pretrained_base=True
         Hybrid faster RCNN network.
     """
     if transfer is None:
-        from ..resnetv1b import resnet50_v1b
+        from gluoncv.model_zoo.resnetv1b import resnet50_v1b
         base_network = resnet50_v1b(pretrained=pretrained_base, dilated=False,
                                     use_global_stats=True)
         features = nn.HybridSequential()
@@ -456,7 +456,7 @@ def faster_rcnn_resnet50_v1b_custom(classes, transfer=None, pretrained_base=True
             num_sample=128, pos_iou_thresh=0.5, pos_ratio=0.25,
             **kwargs)
     else:
-        from ...model_zoo import get_model
+        from gluoncv.model_zoo import get_model
         net = get_model('faster_rcnn_resnet50_v1b_' + str(transfer), pretrained=True, **kwargs)
         net.reset_class(classes)
     return net

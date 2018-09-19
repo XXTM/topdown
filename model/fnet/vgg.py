@@ -109,7 +109,7 @@ vgg_spec = {
 
 # Constructors
 def get_vgg_lsf(backbone, keep_layers, pretrained=True, ctx=cpu(),
-            root='/data/models/gluon/cv', **kwargs):
+            root='~/.mxnet/models', **kwargs):
     r"""VGG model from the `"Very Deep Convolutional Networks for Large-Scale Image Recognition"
     <https://arxiv.org/abs/1409.1556>`_ paper.
 
@@ -129,7 +129,7 @@ def get_vgg_lsf(backbone, keep_layers, pretrained=True, ctx=cpu(),
     layers, filters, dilations, strides = vgg_spec[backbone][keep_layers]
     net = VGGLSF(layers, filters, dilations, strides, **kwargs)
     if pretrained:
-        from gluoncv.model_store import get_model_file
+        from gluoncv.model_zoo.model_store import get_model_file
         batch_norm_suffix = '_bn' if kwargs.get('batch_norm') else ''
         model_file = get_model_file('%s%s'%(backbone, batch_norm_suffix), root=root)
         net.load_parameters(model_file, allow_missing=True, ignore_extra=True, ctx=ctx)
