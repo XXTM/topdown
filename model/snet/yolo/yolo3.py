@@ -458,7 +458,7 @@ def get_yolov3(name, stages, filters, anchors, strides, classes,
         Load pretrained weights.
     pretrained_base : bool, optional, default is True
         Load pretrained base network, the extra layers are randomized. Note that
-        if pretrained is `Ture`, this has no effect.
+        if pretrained is `True`, this has no effect.
     ctx : mxnet.Context
         Context such as mx.cpu(), mx.gpu(0).
     root : str
@@ -471,7 +471,7 @@ def get_yolov3(name, stages, filters, anchors, strides, classes,
     """
     net = YOLOV3(stages, filters, anchors, strides, classes=classes, **kwargs)
     if pretrained:
-        from ..model_store import get_model_file
+        from gluoncv.model_zoo.model_store import get_model_file
         full_name = '_'.join(('yolo3', name, dataset))
         net.load_params(get_model_file(full_name, root=root), ctx=ctx)
     return net
@@ -494,7 +494,7 @@ def yolo3_darknet53_voc(pretrained_base=True, pretrained=False, num_sync_bn_devi
         Fully hybrid yolo3 network.
 
     """
-    from ...data import VOCDetection
+    from gluoncv.data import VOCDetection
     pretrained_base = False if pretrained else pretrained_base
     base_net = darknet53(pretrained=pretrained_base, num_sync_bn_devices=num_sync_bn_devices)
     stages = [base_net.features[:15], base_net.features[15:24], base_net.features[24:]]
@@ -522,7 +522,7 @@ def yolo3_darknet53_coco(pretrained_base=True, pretrained=False, num_sync_bn_dev
     mxnet.gluon.HybridBlock
         Fully hybrid yolo3 network.
     """
-    from ...data import COCODetection
+    from gluoncv.data import COCODetection
     pretrained_base = False if pretrained else pretrained_base
     base_net = darknet53(pretrained=pretrained_base, num_sync_bn_devices=num_sync_bn_devices)
     stages = [base_net.features[:15], base_net.features[15:24], base_net.features[24:]]
@@ -566,7 +566,7 @@ def yolo3_darknet53_custom(classes, transfer=None, pretrained_base=True, pretrai
             'darknet53', stages, [512, 256, 128], anchors, strides, classes, 'coco',
             pretrained=pretrained, num_sync_bn_devices=num_sync_bn_devices, **kwargs)
     else:
-        from ...model_zoo import get_model
+        from gluoncv.model_zoo import get_model
         net = get_model('yolo3_darknet53_' + str(transfer), pretrained=True, **kwargs)
         net.reset_class(classes)
     return net

@@ -109,10 +109,7 @@ class YOLOV4(YOLOV3):
     def __init__(self, dilations, stages, channels, anchors, strides, classes, alloc_size=(128, 128),
                  nms_thresh=0.45, nms_topk=400, post_nms=100, pos_iou_thresh=1.0,
                  ignore_iou_thresh=0.7, num_sync_bn_devices=-1, **kwargs):
-        super(YOLOV4, self).__init__(stages, stages, channels, anchors, strides, classes,
-                                     alloc_size=alloc_size, nms_thresh=nms_thresh, nms_topk=nms_topk,
-                                     post_nms=100, pos_iou_thresh=1.0, ignore_iou_thresh=ignore_iou_thresh,
-                                     num_sync_bn_devices=-1, **kwargs)
+        super(YOLOV4, self).__init__(stages, channels, anchors, strides, classes, **kwargs)
         self._classes = classes
         self.nms_thresh = nms_thresh
         self.nms_topk = nms_topk
@@ -192,7 +189,7 @@ def get_yolov4(name, dilations, stages, filters, anchors, strides, classes,
     HybridBlock
         A YOLOV3 detection network.
     """
-    net = YOLOV4(dilations, stages, filters, anchors, strides, classes=classes, **kwargs)
+    net = YOLOV4(dilations, stages, filters, anchors, strides, classes, **kwargs)
     if pretrained:
         from gluoncv.model_store import get_model_file
         full_name = '_'.join(('yolo3', name, dataset))

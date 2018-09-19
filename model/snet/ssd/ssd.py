@@ -295,7 +295,7 @@ def get_ssd(name, base_size, features, filters, sizes, ratios, steps, classes,
     net = SSD(base_name, base_size, features, filters, sizes, ratios, steps,
               pretrained=pretrained_base, classes=classes, ctx=ctx, **kwargs)
     if pretrained:
-        from ..model_store import get_model_file
+        from gluoncv.model_zoo.model_store import get_model_file
         full_name = '_'.join(('ssd', str(base_size), name, dataset))
         net.load_params(get_model_file(full_name, root=root), ctx=ctx)
     return net
@@ -339,7 +339,7 @@ def ssd_300_vgg16_atrous_coco(pretrained=False, pretrained_base=True, **kwargs):
     HybridBlock
         A SSD detection network.
     """
-    from ...data import COCODetection
+    from gluoncv.data import COCODetection
     classes = COCODetection.CLASSES
     net = get_ssd('vgg16_atrous', 300, features=vgg16_atrous_300, filters=None,
                   sizes=[21, 45, 99, 153, 207, 261, 315],
@@ -382,7 +382,7 @@ def ssd_300_vgg16_atrous_custom(classes, pretrained_base=True, transfer=None, **
                       classes=classes, dataset='',
                       pretrained_base=pretrained_base, **kwargs)
     else:
-        from ...model_zoo import get_model
+        from gluoncv.model_zoo import get_model
         net = get_model('ssd_300_vgg16_atrous_' + str(transfer), pretrained=True, **kwargs)
         net.reset_class(classes)
     return net
@@ -426,7 +426,7 @@ def ssd_512_vgg16_atrous_coco(pretrained=False, pretrained_base=True, **kwargs):
     HybridBlock
         A SSD detection network.
     """
-    from ...data import COCODetection
+    from gluoncv.data import COCODetection
     classes = COCODetection.CLASSES
     return get_ssd('vgg16_atrous', 512, features=vgg16_atrous_512, filters=None,
                    sizes=[51.2, 76.8, 153.6, 230.4, 307.2, 384.0, 460.8, 537.6],
@@ -468,7 +468,7 @@ def ssd_512_vgg16_atrous_custom(classes, pretrained_base=True, transfer=None, **
                       classes=classes, dataset='',
                       pretrained_base=pretrained_base, **kwargs)
     else:
-        from ...model_zoo import get_model
+        from gluoncv.model_zoo import get_model
         net = get_model('ssd_512_vgg16_atrous_' + str(transfer), pretrained=True, **kwargs)
         net.reset_class(classes)
     return net
@@ -513,7 +513,7 @@ def ssd_512_resnet18_v1_coco(pretrained=False, pretrained_base=True, **kwargs):
     HybridBlock
         A SSD detection network.
     """
-    from ...data import COCODetection
+    from gluoncv.data import COCODetection
     classes = COCODetection.CLASSES
     return get_ssd('resnet18_v1', 512,
                    features=['stage3_activation1', 'stage4_activation1'],
@@ -559,7 +559,7 @@ def ssd_512_resnet18_v1_custom(classes, pretrained_base=True, transfer=None, **k
                       classes=classes, dataset='',
                       pretrained_base=pretrained_base, **kwargs)
     else:
-        from ...model_zoo import get_model
+        from gluoncv.model_zoo import get_model
         net = get_model('ssd_512_resnet18_v1_' + str(transfer), pretrained=True, **kwargs)
         net.reset_class(classes)
     return net
@@ -604,7 +604,7 @@ def ssd_512_resnet50_v1_coco(pretrained=False, pretrained_base=True, **kwargs):
     HybridBlock
         A SSD detection network.
     """
-    from ...data import COCODetection
+    from gluoncv.data import COCODetection
     classes = COCODetection.CLASSES
     return get_ssd('resnet50_v1', 512,
                    features=['stage3_activation5', 'stage4_activation2'],
@@ -650,7 +650,7 @@ def ssd_512_resnet50_v1_custom(classes, pretrained_base=True, transfer=None, **k
                       classes=classes, dataset='',
                       pretrained_base=pretrained_base, **kwargs)
     else:
-        from ...model_zoo import get_model
+        from gluoncv.model_zoo import get_model
         net = get_model('ssd_512_resnet50_v1_' + str(transfer), pretrained=True, **kwargs)
         net.reset_class(classes)
     return net
@@ -745,7 +745,7 @@ def ssd_512_mobilenet1_0_coco(pretrained=False, pretrained_base=True, **kwargs):
     HybridBlock
         A SSD detection network.
     """
-    from ...data import COCODetection
+    from gluoncv.data import COCODetection
     classes = COCODetection.CLASSES
     return get_ssd('mobilenet1.0', 512,
                    features=['relu22_fwd', 'relu26_fwd'],
@@ -791,7 +791,7 @@ def ssd_512_mobilenet1_0_custom(classes, pretrained_base=True, transfer=None, **
                       classes=classes, dataset='',
                       pretrained_base=pretrained_base, **kwargs)
     else:
-        from ...model_zoo import get_model
+        from gluoncv.model_zoo import get_model
         net = get_model('ssd_512_mobilenet1_0_' + str(transfer), pretrained=True, **kwargs)
         net.reset_class(classes)
     return net
