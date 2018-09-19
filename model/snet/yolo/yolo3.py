@@ -9,12 +9,41 @@ import mxnet as mx
 from mxnet import gluon
 from mxnet import autograd
 from mxnet.gluon import nn
-from gluoncv.model_zoo.yolo.darknet import _conv2d, darknet53
-from gluoncv.model_zoo.yolo.yolo_target import YOLOV3TargetMerger
-from gluoncv.loss import YOLOV3Loss
+from .darknet import _conv2d, darknet53
+from .yolo_target import YOLOV3TargetMerger
+from .vgg import vgg_simple
+from ...loss import YOLOV3Loss
 
 __all__ = ['YOLOV3', 'get_yolov3',
            'yolo3_darknet53_voc', 'yolo3_darknet53_coco', 'yolo3_darknet53_custom']
+
+def _conv2d_deconv(channel, kernel, padding, stride, num_sync_bn_devices=-1):
+    """A common conv-bn-leakyrelu cell"""
+    cell = nn.HybridSequential(prefix='')
+    cell.add(nn.Conv2DTranspose(channel, kernel_size=kernel,
+                       strides=stride, padding=padding, use_bias=False))
+    if num_sync_bn_devices < 1:
+        cell.add(nn.BatchNorm(epsilon=1e-5, momentum=0.9))
+    else:
+        cell.add(gluon.contrib.nn.SyncBatchNorm(
+            epsilon=1e-5, momentum=0.9, num_devices=num_sync_bn_devices))
+    cell.add(nn.Activation('sigmoid'))
+    return cell
+
+
+def _conv2d_dl(channel, kernel, dilation, padding, stride, num_sync_bn_devices=-1):
+    """A common conv-bn-leakyrelu cell"""
+    cell = nn.HybridSequential(prefix='')
+    cell.add(nn.Conv2D(channel, kernel_size=kernel, dilation=dilation,
+                       strides=stride, padding=padding, use_bias=False))
+    if num_sync_bn_devices < 1:
+        cell.add(nn.BatchNorm(epsilon=1e-5, momentum=0.9))
+    else:
+        cell.add(gluon.contrib.nn.SyncBatchNorm(
+            epsilon=1e-5, momentum=0.9, num_devices=num_sync_bn_devices))
+    cell.add(nn.LeakyReLU(0.1))
+    return cell
+
 
 def _upsample(x, stride=2):
     """Simple upsampling layer by stack pixel alongside horizontal and vertical directions.
@@ -171,18 +200,19 @@ class YOLODetectionBlockV3(gluon.HybridBlock):
         Number of devices for training. If `num_sync_bn_devices < 2`, SyncBatchNorm is disabled.
 
     """
-    def __init__(self, channel, num_sync_bn_devices=-1, **kwargs):
+    def __init__(self, channel, dilation, num_sync_bn_devices=-1, **kwargs):
         super(YOLODetectionBlockV3, self).__init__(**kwargs)
         assert channel % 2 == 0, "channel {} cannot be divided by 2".format(channel)
         with self.name_scope():
+            d = dilation
             self.body = nn.HybridSequential(prefix='')
-            for _ in range(2):
+            for i in range(2):
                 # 1x1 reduce
                 self.body.add(_conv2d(channel, 1, 0, 1, num_sync_bn_devices))
                 # 3x3 expand
-                self.body.add(_conv2d(channel * 2, 3, 1, 1, num_sync_bn_devices))
+                self.body.add(_conv2d_dl(channel * 2, 3, d[i], d[i], 1, num_sync_bn_devices))
             self.body.add(_conv2d(channel, 1, 0, 1, num_sync_bn_devices))
-            self.tip = _conv2d(channel * 2, 3, 1, 1, num_sync_bn_devices)
+            self.tip = _conv2d_dl(channel * 2, 3, d[-1], d[-1], 1, num_sync_bn_devices)    # channel, kernel, dilation, padding, stride, num_sync_bn_devices=-1
 
     # pylint: disable=unused-argument
     def hybrid_forward(self, F, x):
@@ -233,7 +263,7 @@ class YOLOV3(gluon.HybridBlock):
         Number of devices for training. If `num_sync_bn_devices < 2`, SyncBatchNorm is disabled.
 
     """
-    def __init__(self, stages, channels, anchors, strides, classes, alloc_size=(128, 128),
+    def __init__(self, dilations, stages, fnet_feature, channels, anchors, strides, classes, alloc_size=(128, 128),
                  nms_thresh=0.45, nms_topk=400, post_nms=100, pos_iou_thresh=1.0,
                  ignore_iou_thresh=0.7, num_sync_bn_devices=-1, **kwargs):
         super(YOLOV3, self).__init__(**kwargs)
@@ -243,6 +273,11 @@ class YOLOV3(gluon.HybridBlock):
         self.post_nms = post_nms
         self._pos_iou_thresh = pos_iou_thresh
         self._ignore_iou_thresh = ignore_iou_thresh
+        self.fast_channel_conv = _conv2d(1024, 1, 0, 1, num_sync_bn_devices)
+        self.fast_deconv = _conv2d_deconv(1024, 3, 0, 3, num_sync_bn_devices)
+        #self.fnet_feature = nn.HybridSequential()
+        #self.fnet_feature.add(fnet_feature)
+        self.fnet_feature = fnet_feature
         if pos_iou_thresh >= 1:
             self._target_generator = YOLOV3TargetMerger(len(classes), ignore_iou_thresh)
         else:
@@ -255,10 +290,10 @@ class YOLOV3(gluon.HybridBlock):
             self.yolo_blocks = nn.HybridSequential()
             self.yolo_outputs = nn.HybridSequential()
             # note that anchors and strides should be used in reverse order
-            for i, stage, channel, anchor, stride in zip(
-                    range(len(stages)), stages, channels, anchors[::-1], strides[::-1]):
+            for i, stage, channel, anchor, stride, dilation in zip(
+                    range(len(stages)), stages, channels, anchors[::-1], strides[::-1], dilations[::-1]):
                 self.stages.add(stage)
-                block = YOLODetectionBlockV3(channel, num_sync_bn_devices)
+                block = YOLODetectionBlockV3(channel, dilation, num_sync_bn_devices)
                 self.yolo_blocks.add(block)
                 output = YOLOOutputV3(i, len(classes), anchor, stride, alloc_size=alloc_size)
                 self.yolo_outputs.add(output)
@@ -321,13 +356,22 @@ class YOLOV3(gluon.HybridBlock):
         all_feat_maps = []
         all_detections = []
         routes = []
+        fnet_out = self.fnet_feature(x)
+        fnet_out = self.fast_channel_conv(fnet_out)
+        fnet_out = self.fast_deconv(fnet_out)
+
+        #fnet_up_s = _upsample(fnet_out, stride=3)
+        #fnet_up_m = _upsample(fnet_out, stride=6)
+        #fnet_up_l = _upsample(fnet_out, stride=12)
         for stage, block, output in zip(self.stages, self.yolo_blocks, self.yolo_outputs):
             x = stage(x)
             routes.append(x)
 
         # the YOLO output layers are used in reverse order, i.e., from very deep layers to shallow
         for i, block, output in zip(range(len(routes)), self.yolo_blocks, self.yolo_outputs):
-            x, tip = block(x)
+            x, tip = block(x)   # i = 0 , stride = 32
+            if i == 0:
+                tip = tip*(0.5+fnet_out)
             if autograd.is_training():
                 dets, box_centers, box_scales, objness, class_pred, anchors, offsets = output(tip)
                 all_box_centers.append(box_centers.reshape((0, -3, -1)))
@@ -421,7 +465,7 @@ class YOLOV3(gluon.HybridBlock):
         for outputs in self.yolo_outputs:
             outputs.reset_class(classes)
 
-def get_yolov3(name, stages, filters, anchors, strides, classes,
+def get_yolov3(name, dilations, stages, fnet_feature, filters, anchors, strides, classes,
                dataset, pretrained=False, ctx=mx.cpu(),
                root=os.path.join('~', '.mxnet', 'models'), **kwargs):
     """Get YOLOV3 models.
@@ -458,7 +502,7 @@ def get_yolov3(name, stages, filters, anchors, strides, classes,
         Load pretrained weights.
     pretrained_base : bool, optional, default is True
         Load pretrained base network, the extra layers are randomized. Note that
-        if pretrained is `True`, this has no effect.
+        if pretrained is `Ture`, this has no effect.
     ctx : mxnet.Context
         Context such as mx.cpu(), mx.gpu(0).
     root : str
@@ -469,9 +513,9 @@ def get_yolov3(name, stages, filters, anchors, strides, classes,
     HybridBlock
         A YOLOV3 detection network.
     """
-    net = YOLOV3(stages, filters, anchors, strides, classes=classes, **kwargs)
+    net = YOLOV3(dilations, stages, fnet_feature, filters, anchors, strides, classes=classes, **kwargs)
     if pretrained:
-        from gluoncv.model_zoo.model_store import get_model_file
+        from ..model_store import get_model_file
         full_name = '_'.join(('yolo3', name, dataset))
         net.load_params(get_model_file(full_name, root=root), ctx=ctx)
     return net
@@ -494,15 +538,21 @@ def yolo3_darknet53_voc(pretrained_base=True, pretrained=False, num_sync_bn_devi
         Fully hybrid yolo3 network.
 
     """
-    from gluoncv.data import VOCDetection
+    from ...data import VOCDetection
     pretrained_base = False if pretrained else pretrained_base
     base_net = darknet53(pretrained=pretrained_base, num_sync_bn_devices=num_sync_bn_devices)
-    stages = [base_net.features[:15], base_net.features[15:24], base_net.features[24:]]
-    anchors = [[10, 13, 16, 30, 33, 23], [30, 61, 62, 45, 59, 119], [116, 90, 156, 198, 373, 326]]
-    strides = [8, 16, 32]
+    # vgg_simple
+    fnet_feature = vgg_simple()
+    stages = [base_net.features[:15], base_net.features[15:24], base_net.features[24:]]   # large --> small
+    anchors = [[10, 13, 16, 30, 33, 23], [30, 61, 62, 45, 59, 119], [116, 90, 156, 198, 373, 326]]   # small --> large (reverse)
+    strides = [8, 16, 32]   # small --> large (reverse)
+    # Here for adjusting dilations
+    #dilations = [[1, 1, 1], [1, 2, 2], [2, 2, 4]]   # small --> large (reverse)
+    dilations = [[1, 1, 1], [1, 1, 1], [1, 1, 1]]
+    print('dilations: {}'.format(dilations))
     classes = VOCDetection.CLASSES
     return get_yolov3(
-        'darknet53', stages, [512, 256, 128], anchors, strides, classes, 'voc',
+        'darknet53', dilations, stages, fnet_feature, [512, 256, 128], anchors, strides, classes, 'voc',
         pretrained=pretrained, num_sync_bn_devices=num_sync_bn_devices, **kwargs)
 
 def yolo3_darknet53_coco(pretrained_base=True, pretrained=False, num_sync_bn_devices=-1, **kwargs):
@@ -522,7 +572,7 @@ def yolo3_darknet53_coco(pretrained_base=True, pretrained=False, num_sync_bn_dev
     mxnet.gluon.HybridBlock
         Fully hybrid yolo3 network.
     """
-    from gluoncv.data import COCODetection
+    from ...data import COCODetection
     pretrained_base = False if pretrained else pretrained_base
     base_net = darknet53(pretrained=pretrained_base, num_sync_bn_devices=num_sync_bn_devices)
     stages = [base_net.features[:15], base_net.features[15:24], base_net.features[24:]]
@@ -566,7 +616,7 @@ def yolo3_darknet53_custom(classes, transfer=None, pretrained_base=True, pretrai
             'darknet53', stages, [512, 256, 128], anchors, strides, classes, 'coco',
             pretrained=pretrained, num_sync_bn_devices=num_sync_bn_devices, **kwargs)
     else:
-        from gluoncv.model_zoo import get_model
+        from ...model_zoo import get_model
         net = get_model('yolo3_darknet53_' + str(transfer), pretrained=True, **kwargs)
         net.reset_class(classes)
     return net
