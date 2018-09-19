@@ -145,7 +145,7 @@ darknet_spec = {
 }
 
 def get_darknet_lsf(darknet_version, num_layers, pretrained=True, ctx=mx.cpu(),
-                    root=os.path.join('~/.mxnet/model'), **kwargs):
+                    root=os.path.join('~/.mxnet/models'), **kwargs):
     """Get darknet by `version` and `num_layers` info.
 
     Parameters
@@ -182,7 +182,7 @@ def get_darknet_lsf(darknet_version, num_layers, pretrained=True, ctx=mx.cpu(),
     darknet_class = darknet_versions[darknet_version]
     net = darknet_class(layers, channels, dilations, **kwargs)
     if pretrained:
-        from gluoncv.model_store import get_model_file
+        from gluoncv.model_zoo.model_store import get_model_file
         model_file = get_model_file('darknet53', root=root)
         net.load_parameters(model_file, ctx=ctx, allow_missing=True, ignore_extra=True)
     return net
