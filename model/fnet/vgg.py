@@ -65,6 +65,11 @@ class VGGLSF(HybridBlock):
             "len(strides) should equal to len(layers), given {} vs {}".format(
                 len(strides), len(layers)))
         self.stages = len(layers)
+        self._stride = pow(2, len(layers) - 1)
+        for layer, stride in zip(layers, strides):
+            s = stride if isinstance(stride, tuple) else [stride] * layer
+            for i in range(layer):
+                self._stride *= s[i]
         with self.name_scope():
             self.features = self._make_features(layers, filters, dilations, strides, batch_norm)
 
@@ -87,6 +92,10 @@ class VGGLSF(HybridBlock):
     def hybrid_forward(self, F, x):
         x = self.features(x)
         return x
+
+    @property
+    def stride(self):
+        return self._stride
 
 
 # Specification
