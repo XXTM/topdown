@@ -7,21 +7,183 @@ import os, numpy as np
 import mxnet as mx
 from mxnet import gluon, autograd
 from mxnet.gluon import nn
-from gluoncv.model_zoo.yolo.yolo3 import get_yolov3
+from gluoncv.model_zoo.yolo.yolo3 import YOLOV3Loss, YOLOOutputV3, YOLOV3TargetMerger, get_yolov3
+from gluoncv.model_zoo.yolo.darknet import _conv2d
 
 
 __all__ = ['fyolo_vgg_voc', 'fyolo_darknet_voc', 'fyolo_darknet53_voc']
 
-def fyolo_darknet53_voc(version='simple', full_stages=False, pretrained_base=True,
-                        pretrained=False, num_sync_bn_devices=-1, **kwargs):
+class FYOLODetectionBlock(gluon.HybridBlock):
+    """FYOLO Detection Block which does the following:
+
+    - add a few conv layers
+    - return the output
+
+    Parameters
+    ----------
+    channel : int
+        Number of channels for 1x1 conv. 3x3 Conv will have 2*channel.
+    num_sync_bn_devices : int, default is -1
+        Number of devices for training. If `num_sync_bn_devices < 2`, SyncBatchNorm is disabled.
+
+    """
+    def __init__(self, channel, num_sync_bn_devices=-1, **kwargs):
+        super(FYOLODetectionBlock, self).__init__(**kwargs)
+        assert channel % 2 == 0, "channel {} cannot be divided by 2".format(channel)
+        with self.name_scope():
+            self.body = nn.HybridSequential(prefix='')
+            for _ in range(3):
+                # 1x1 reduce
+                self.body.add(_conv2d(channel, 1, 0, 1, num_sync_bn_devices))
+                # 3x3 expand
+                self.body.add(_conv2d(channel * 2, 3, 1, 1, num_sync_bn_devices))
+
+    # pylint: disable=unused-argument
+    def hybrid_forward(self, F, x):
+        det = self.body(x)
+        return det
+
+
+class FYOLO(gluon.HybridBlock):
+    """FYOLO single-stage detection network for fnet.
+
+    Parameters
+    ----------
+    feature : mxnet.gluon.HybridBlock
+        Hybrid block as the feature extractor
+    channel : iterable
+        Number of conv channel.
+    num_class : int
+        Number of foreground objects.
+    anchor : iterable
+        The anchor setting.
+    stride : iterable
+        Stride of feature map.
+    alloc_size : tuple of int, default is (128, 128)
+        For advanced users. Define `alloc_size` to generate large enough anchor
+        maps, which will later saved in parameters. During inference, we support arbitrary
+        input image by cropping corresponding area of the anchor map. This allow us
+        to export to symbol so we can run it in c++, Scalar, etc.
+    nms_thresh : float, default is 0.45.
+        Non-maximum suppression threshold. You can speficy < 0 or > 1 to disable NMS.
+    nms_topk : int, default is 400
+        Apply NMS to top k detection results, use -1 to disable so that every Detection
+         result is used in NMS.
+    post_nms : int, default is 100
+        Only return top `post_nms` detection results, the rest is discarded. The number is
+        based on COCO dataset which has maximum 100 objects per image. You can adjust this
+        number if expecting more objects. You can use -1 to return all detections.
+    pos_iou_thresh : float, default is 1.0
+        IOU threshold for true anchors that match real objects.
+        'pos_iou_thresh < 1' is not implemented.
+    ignore_iou_thresh : float
+        Anchors that has IOU in `range(ignore_iou_thresh, pos_iou_thresh)` don't get
+        penalized of objectness score.
+    num_sync_bn_devices : int, default is -1
+        Number of devices for training. If `num_sync_bn_devices < 2`, SyncBatchNorm is disabled.
+
+    """
+    def __init__(self, feature, channel, anchor, stride, classes, alloc_size=(128, 128),
+                    nms_thresh=0.45, nms_topk=400, post_nms=100, pos_iou_thresh=1.0,
+                 ignore_iou_thresh=0.7, num_sync_bn_devices=-1, **kwargs):
+        super(FYOLO, self).__init__(**kwargs)
+        self._classes = classes
+        self.nms_thresh = nms_thresh
+        self.nms_topk = nms_topk
+        self.post_nms = post_nms
+        self._pos_iou_thresh = pos_iou_thresh
+        self._ignore_iou_thresh = ignore_iou_thresh
+        if pos_iou_thresh >= 1:
+            self._target_generator = YOLOV3TargetMerger(len(classes), ignore_iou_thresh)
+        else:
+            raise NotImplementedError(
+                "pos_iou_thresh({}) < 1.0 is not implemented!".format(pos_iou_thresh))
+        self._loss = YOLOV3Loss()
+        with self.name_scope():
+            self.feature = feature
+            self.yolo_block = FYOLODetectionBlock(channel, num_sync_bn_devices)
+            self.yolo_output = YOLOOutputV3(0, len(classes), anchor, stride, alloc_size=alloc_size)
+
+
+    def hybrid_forward(self, F, x, *args):
+        """FYOLO network hybrid forward.
+
+        Parameters
+        ----------
+        F : mxnet.nd or mxnet.sym
+            `F` is mxnet.sym if hybridized or mxnet.nd if not.
+        x : mxnet.nd.NDArray
+            Input data.
+        *args : optional, mxnet.nd.NDArray
+            During training, extra inputs are required:
+            (gt_boxes, obj_t, centers_t, scales_t, weights_t, clas_t)
+            These are generated by YOLOV3PrefetchTargetGenerator in dataloader transform function.
+
+        Returns
+        -------
+        (tuple of) mxnet.nd.NDArray
+            During inference, return detections in shape (B, N, 6)
+            with format (cid, score, xmin, ymin, xmax, ymax)
+            During training, return losses only: (obj_loss, center_loss, scale_loss, cls_loss).
+
+        """
+        x = self.feature(x)
+        x = self.yolo_block(x)
+        all_box_centers, all_box_scales, all_objectness, all_class_pred, all_anchors, \
+        all_offsets, all_feat_maps, all_detections = [], [], [], [], [], [], []
+        if autograd.is_training():
+            dets, box_centers, box_scales, objness, class_pred, anchors, offsets = self.yolo_output(x)
+            all_box_centers.append(box_centers.reshape((0, -3, -1)))
+            all_box_scales.append(box_scales.reshape((0, -3, -1)))
+            all_objectness.append(objness.reshape((0, -3, -1)))
+            all_class_pred.append(class_pred.reshape((0, -3, -1)))
+            all_anchors.append(anchors)
+            all_offsets.append(offsets)
+            # here we use fake featmap to reduce memory consuption, only shape[2, 3] is used
+            fake_featmap = F.zeros_like(x.slice_axis(axis=0, begin=0, end=1).slice_axis(axis=1, begin=0, end=1))
+            all_feat_maps.append(fake_featmap)
+        else:
+            dets = self.yolo_output(x)
+        all_detections.append(dets)
+
+        if autograd.is_training():
+            # during training, the network behaves differently since we don't need detection results
+            if autograd.is_recording():
+                # generate losses and return them directly
+                box_preds = F.concat(*all_detections, dim=1)
+                all_preds = [F.concat(*p, dim=1) for p in [
+                    all_objectness, all_box_centers, all_box_scales, all_class_pred]]
+                all_targets = self._target_generator(box_preds, *args)
+                return self._loss(*(all_preds + all_targets))
+
+            # return raw predictions, this is only used in DataLoader transform function.
+            return (F.concat(*all_detections, dim=1), all_anchors, all_offsets, all_feat_maps,
+                    F.concat(*all_box_centers, dim=1), F.concat(*all_box_scales, dim=1),
+                    F.concat(*all_objectness, dim=1), F.concat(*all_class_pred, dim=1))
+
+        # concat all detection results from different stages
+        result = F.concat(*all_detections, dim=1)
+        # apply nms per class
+        if self.nms_thresh > 0 and self.nms_thresh < 1:
+            result = F.contrib.box_nms(
+                result, overlap_thresh=self.nms_thresh, valid_thresh=0.01,
+                topk=self.nms_topk, id_index=0, score_index=1, coord_start=2, force_suppress=False)
+            if self.post_nms > 0:
+                result = result.slice_axis(axis=1, begin=0, end=self.post_nms)
+        ids = result.slice_axis(axis=-1, begin=0, end=1)
+        scores = result.slice_axis(axis=-1, begin=1, end=2)
+        bboxes = result.slice_axis(axis=-1, begin=2, end=None)
+        return ids, scores, bboxes
+
+
+def fyolo_darknet53_voc(version='simple', pretrained_base=True, pretrained=False,
+                        num_sync_bn_devices=-1, **kwargs):
     """FYOLO of darknet53 on VOC dataset, supporting full-stages multiscale prediction
 
     Parameters
     ----------
     version : str
         The darknet version for detecting low-spatial-frequency signals.
-    full_stages : boolean
-        Set True to use 3-stages for multiscale detection, or False to use the top features only.
     pretrained_base : boolean
         Whether fetch and load pretrained weights for base network.
     pretrained : boolean
@@ -46,15 +208,21 @@ def fyolo_darknet53_voc(version='simple', full_stages=False, pretrained_base=Tru
     strides = [8, 16, 32]
     filters = [512, 256, 128]
     classes = VOCDetection.CLASSES
-    if not full_stages:
-        stages = [base_net.features[24:]]
-        anchors = [anchors[0] + anchors[1] + anchors[2]]
-        strides = [32]
-        filters = [512]
 
     return get_yolov3(
         'darknet53', stages, filters, anchors, strides, classes, 'voc',
         pretrained=pretrained, num_sync_bn_devices=num_sync_bn_devices, **kwargs)
+
+
+def get_fyolo(name, feature, filter, anchor, stride, classes, dataset, pretrained=False,
+              ctx=mx.cpu(), root=os.path.join('~', '.mxnet', 'models'), **kwargs):
+    net = FYOLO(feature, filter, anchor, stride, classes=classes, **kwargs)
+    if pretrained:
+        from gluoncv.model_store import get_model_file
+        full_name = '_'.join(('yolo3', name, dataset))
+        net.load_params(get_model_file(full_name, root=root), ctx=ctx, allow_missing=True, ignore_extra=True)
+    return net
+
 
 def fyolo_darknet_voc(version='simple', num_layers=52, pretrained_base=True,
                       pretrained=False, num_sync_bn_devices=-1, **kwargs):
@@ -84,9 +252,15 @@ def fyolo_darknet_voc(version='simple', num_layers=52, pretrained_base=True,
     pretrained_base = False if pretrained else pretrained_base
     base_net = get_darknet_lsf(darknet_version=version, num_layers=num_layers, pretrained=pretrained_base,
                                num_sync_bn_devices=num_sync_bn_devices, **kwargs)
-
+    anchor = [10, 13, 16, 30, 33, 23, 30, 61, 62, 45, 59, 119, 116, 90, 156, 198, 373, 326]
+    # anchor = [18, 22, 60, 66, 107, 175, 252, 113, 323, 293]   # yolov2, 416
+    # anchor = [30, 35, 97, 107, 173, 283, 407, 182, 506, 474]  # yolov2, 672
+    stride = base_net.stride
+    filter = 512
     classes = VOCDetection.CLASSES
-    # TODO @ xyutao: Implemenet darknet-based single-scale yolo.
+    return get_fyolo("darknet%d_fn" % (num_layers), base_net, filter, anchor, stride, classes, 'voc',
+                     pretrained=pretrained, num_sync_bn_devices=num_sync_bn_devices, **kwargs)
+
 
 def fyolo_vgg_voc(backbone="vgg16", num_layers=13, pretrained_base=True,
                   pretrained=False, num_sync_bn_devices=-1, **kwargs):
@@ -117,5 +291,13 @@ def fyolo_vgg_voc(backbone="vgg16", num_layers=13, pretrained_base=True,
     base_net = get_vgg_lsf(backbone=backbone, keep_layers=num_layers, pretrained=pretrained_base,
                            num_sync_bn_devices=num_sync_bn_devices, **kwargs)
 
+    anchor = [10, 13, 16, 30, 33, 23, 30, 61, 62, 45, 59, 119, 116, 90, 156, 198, 373, 326]
+    # anchor = [18, 22, 60, 66, 107, 175, 252, 113, 323, 293]   # yolov2, 416
+    # anchor = [30, 35, 97, 107, 173, 283, 407, 182, 506, 474]  # yolov2, 672
+    stride = base_net.stride
+    filter = 512
     classes = VOCDetection.CLASSES
     # TODO @ xyutao: Implemenet vgg-based single-scale yolo.
+    return get_fyolo("%s_%d_fn" % (backbone, num_layers), base_net, filter, anchor, stride, classes,
+                     'voc', pretrained=pretrained, num_sync_bn_devices=num_sync_bn_devices, **kwargs)
+

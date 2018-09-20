@@ -114,6 +114,7 @@ class DarknetLSFSimple(gluon.HybridBlock):
         assert len(layers) == len(dilations) - 1, (
             "len(dilations) should equal to len(layers) + 1, given {} vs {}".format(
                 len(dilations), len(layers)))
+        self._stride = dilations[0] * pow(2, len(layers))
         with self.name_scope():
             self.features = nn.HybridSequential()
             # first 3x3 conv with channels[0], dilation=padding=stride=dilations[0]
@@ -128,6 +129,12 @@ class DarknetLSFSimple(gluon.HybridBlock):
                     self.features.add(DarknetDLBlock(channel // 2, dilation, num_sync_bn_devices))
             # try adding downsample conv for the output features
             # self.features.add(_conv2d(channel, 3, 1, 2, num_sync_bn_devices))
+            # self._stride *= 2
+
+    @property
+    def stride(self):
+        return self._stride
+
 
     def hybrid_forward(self, F, x):
         return self.features(x)
@@ -137,7 +144,7 @@ class DarknetLSFSimple(gluon.HybridBlock):
 darknet_versions = {'simple': DarknetLSFSimple}
 darknet_spec = {
     'simple': {
-        # format preset:([layers, channels, dilations])
+        # format preset:([layers, channels, dilations, feat_stride])
         # the first element of channels and dilations are for the first conv-layer
         26: ([1, 2, 8], [32, 64, 128, 256], [3, 1, 1, 2]),
         43: ([1, 2, 8, 8], [32, 64, 128, 256, 512], [3, 1, 1, 1, 2]),
