@@ -1,0 +1,95 @@
+~~~~ Summary metrics ~~~~
+ : Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.319
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets=100 ] = 0.527
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets=100 ] = 0.333
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.127
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.333
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.511
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=  1 ] = 0.266
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 10 ] = 0.384
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.393
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.174
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.411
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.599
+person : 41.7
+bicycle : 21.8
+car : 29.1
+motorcycle : 34.9
+airplane : 55.4
+bus : 57.5
+train : 60.7
+truck : 28.9
+boat : 17.4
+traffic light : 17.3
+fire hydrant : 54.4
+stop sign : 54.3
+parking meter : 35.2
+bench : 19.6
+bird : 27.0
+cat : 58.6
+dog : 54.6
+horse : 46.7
+sheep : 39.6
+cow : 41.7
+elephant : 54.4
+bear : 63.0
+zebra : 55.6
+giraffe : 57.3
+backpack : 7.8
+umbrella : 30.8
+handbag : 8.9
+tie : 22.3
+suitcase : 28.4
+frisbee : 49.1
+skis : 17.2
+snowboard : 21.9
+sports ball : 31.5
+kite : 31.2
+baseball bat : 17.9
+baseball glove : 27.0
+skateboard : 37.8
+surfboard : 30.1
+tennis racket : 34.1
+bottle : 22.9
+wine glass : 23.2
+cup : 30.3
+fork : 22.6
+knife : 10.1
+spoon : 9.3
+bowl : 29.6
+banana : 16.8
+apple : 9.8
+sandwich : 26.7
+orange : 23.5
+broccoli : 16.5
+carrot : 12.7
+hot dog : 27.6
+pizza : 41.5
+donut : 32.8
+cake : 28.4
+chair : 20.7
+couch : 37.1
+potted plant : 20.3
+bed : 39.7
+dining table : 21.6
+toilet : 52.6
+tv : 47.8
+laptop : 47.9
+mouse : 48.3
+remote : 15.3
+keyboard : 40.2
+cell phone : 25.0
+microwave : 48.0
+oven : 26.9
+toaster : 17.7
+sink : 28.6
+refrigerator : 45.5
+book : 7.6
+clock : 40.1
+vase : 26.3
+scissors : 30.1
+teddy bear : 38.8
+hair drier : 2.0
+toothbrush : 14.9
+~~~~ MeanAP @ IoU=[0.50,0.95] ~~~~
+ : 31.9
